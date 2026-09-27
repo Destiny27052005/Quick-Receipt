@@ -13,7 +13,6 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   User,
-  Box,
   CreditCard,
   Send,
   ShieldCheck,
@@ -21,6 +20,8 @@ import {
   MessageCircle,
   ArrowLeft,
   Smile,
+  Plus,
+  Trash2,
 } from "lucide-react";
 
 // Lucide-compatible Naira Icon (₦)
@@ -45,7 +46,7 @@ function NairaIcon({ className = "w-5 h-5" }) {
   );
 }
 
-// Receipt paper icon matching the brand logo
+// Receipt paper icon matching brand logo
 function ReceiptBadgeIcon({ className = "w-8 h-8" }) {
   return (
     <svg
@@ -74,12 +75,48 @@ const paymentLabels = {
 export default function Home() {
   const [formData, setFormData] = useState({
     customerName: "",
-    item: "",
-    price: "",
+    items: [{ name: "", qty: 1, price: "" }],
     paymentMethod: "bank_transfer",
   });
 
   const [receiptData, setReceiptData] = useState(null);
+
+  // Add a new row
+  const addItem = () => {
+    setFormData((prev) => ({
+      ...prev,
+      items: [...prev.items, { name: "", qty: 1, price: "" }],
+    }));
+  };
+
+  // Remove a row
+  const removeItem = (index) => {
+    if (formData.items.length === 1) {
+      toast.warning("Keep at least one item");
+      return;
+    }
+    setFormData((prev) => ({
+      ...prev,
+      items: prev.items.filter((_, i) => i !== index),
+    }));
+  };
+
+  // Update specific field in an item row
+  const updateItem = (index, field, value) => {
+    setFormData((prev) => {
+      const updated = [...prev.items];
+      updated[index][field] = value;
+      return { ...prev, items: updated };
+    });
+  };
+
+  // Calculate grand total dynamically
+  const calculateTotal = (itemsList) => {
+    return itemsList.reduce((acc, curr) => {
+      const lineTotal = (Number(curr.qty) || 0) * (Number(curr.price) || 0);
+      return acc + lineTotal;
+    }, 0);
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -91,16 +128,14 @@ export default function Home() {
       return;
     }
 
-    if (!formData.item.trim()) {
-      toast.error("Missing Item/Service", {
-        description: "Please specify the item or service rendered.",
-      });
-      return;
-    }
+    // Validate that all items have a name and a valid price
+    const hasEmptyFields = formData.items.some(
+      (item) => !item.name.trim() || !item.price || Number(item.price) <= 0
+    );
 
-    if (!formData.price.trim()) {
-      toast.error("Missing Price", {
-        description: "Please enter the amount in Naira.",
+    if (hasEmptyFields) {
+      toast.error("Incomplete items", {
+        description: "Please fill in names, quantities, and prices for all items.",
       });
       return;
     }
@@ -121,13 +156,14 @@ export default function Home() {
 
     setReceiptData({
       ...formData,
+      totalAmount: calculateTotal(formData.items),
       receiptNo: randomReceiptNum,
       date: formattedDate,
       time: formattedTime,
     });
 
     toast.success("Receipt Generated!", {
-      description: `Receipt #${randomReceiptNum} created.`,
+      description: `Receipt #${randomReceiptNum} ready.`,
     });
   };
 
@@ -135,15 +171,20 @@ export default function Home() {
     if (!receiptData) return;
 
     try {
+      // Dynamic page height based on number of items
+      const baseHeight = 130;
+      const extraHeight = receiptData.items.length * 8;
+      const pageHeight = Math.max(150, baseHeight + extraHeight);
+
       const doc = new jsPDF({
         orientation: "portrait",
         unit: "mm",
-        format: [80, 155],
+        format: [80, pageHeight],
       });
 
       const pageWidth = doc.internal.pageSize.getWidth();
 
-      // Brand
+      // Header
       doc.setFont("helvetica", "bold");
       doc.setFontSize(13);
       doc.setTextColor(37, 99, 235);
@@ -152,7 +193,9 @@ export default function Home() {
       doc.setFont("helvetica", "normal");
       doc.setFontSize(7.5);
       doc.setTextColor(100, 116, 139);
-      doc.text("Thank you for your support!", pageWidth / 2, 18.5, { align: "center" });
+      doc.text("Thank you for your support!", pageWidth / 2, 18.5, {
+        align: "center",
+      });
 
       // Receipt Title
       doc.setFont("helvetica", "bold");
@@ -186,62 +229,80 @@ export default function Home() {
       doc.setTextColor(15, 23, 42);
       doc.text(receiptData.customerName, 8, 53);
 
-      // Items Box Header
+      // Table Header
+      let y = 58;
       doc.setFillColor(239, 246, 255);
-      doc.rect(8, 58, pageWidth - 16, 7, "F");
+      doc.rect(8, y, pageWidth - 16, 7, "F");
       doc.setFont("helvetica", "bold");
       doc.setFontSize(7.5);
       doc.setTextColor(30, 58, 138);
-      doc.text("Item", 11, 62.5);
-      doc.text("Qty", pageWidth / 2 + 5, 62.5, { align: "center" });
-      doc.text("Price", pageWidth - 11, 62.5, { align: "right" });
+      doc.text("Item", 11, y + 4.5);
+      doc.text("Qty", pageWidth / 2 + 5, y + 4.5, { align: "center" });
+      doc.text("Price", pageWidth - 11, y + 4.5, { align: "right" });
 
-      // Item Row
+      // Loop Line Items
+      y += 11;
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(8.5);
+      doc.setFontSize(8);
       doc.setTextColor(30, 41, 59);
-      doc.text(receiptData.item, 11, 71);
-      doc.text("1", pageWidth / 2 + 5, 71, { align: "center" });
-      doc.text(`NGN ${receiptData.price}`, pageWidth - 11, 71, { align: "right" });
+
+      receiptData.items.forEach((item) => {
+        const lineTotal = Number(item.qty) * Number(item.price);
+        doc.text(item.name.substring(0, 18), 11, y);
+        doc.text(String(item.qty), pageWidth / 2 + 5, y, { align: "center" });
+        doc.text(`NGN ${lineTotal.toLocaleString()}`, pageWidth - 11, y, {
+          align: "right",
+        });
+        y += 6.5;
+      });
 
       // Divider line
-      doc.setDrawColor(241, 245, 249);
-      doc.line(8, 77, pageWidth - 8, 77);
+      doc.setDrawColor(226, 232, 240);
+      doc.line(8, y, pageWidth - 8, y);
+      y += 6;
 
-      // Total
+      // Grand Total
       doc.setFont("helvetica", "bold");
       doc.setFontSize(9.5);
       doc.setTextColor(15, 23, 42);
-      doc.text("Total", 11, 84);
-      doc.text(`NGN ${receiptData.price}`, pageWidth - 11, 84, { align: "right" });
+      doc.text("Total", 11, y);
+      doc.text(`NGN ${receiptData.totalAmount.toLocaleString()}`, pageWidth - 11, y, {
+        align: "right",
+      });
 
-      // Divider line
-      doc.line(8, 89, pageWidth - 8, 89);
+      y += 4;
+      doc.line(8, y, pageWidth - 8, y);
+      y += 7;
 
       // Payment Method
       doc.setFont("helvetica", "normal");
       doc.setFontSize(7.5);
       doc.setTextColor(100, 116, 139);
-      doc.text("Payment Method:", 8, 96);
-
+      doc.text("Payment Method:", 8, y);
+      y += 5;
       doc.setFont("helvetica", "bold");
       doc.setFontSize(8.5);
       doc.setTextColor(30, 41, 59);
-      doc.text(paymentLabels[receiptData.paymentMethod] || receiptData.paymentMethod, 8, 101);
+      doc.text(
+        paymentLabels[receiptData.paymentMethod] || receiptData.paymentMethod,
+        8,
+        y
+      );
 
-      // Bottom Message Box
+      // Thank You Box
+      y += 10;
       doc.setFillColor(239, 246, 255);
-      doc.roundedRect(8, 110, pageWidth - 16, 15, 2, 2, "F");
+      doc.roundedRect(8, y, pageWidth - 16, 15, 2, 2, "F");
 
       doc.setFont("helvetica", "bold");
       doc.setFontSize(8.5);
       doc.setTextColor(30, 58, 138);
-      doc.text("Thank you!", pageWidth / 2, 116, { align: "center" });
+      doc.text("Thank you!", pageWidth / 2, y + 6, { align: "center" });
 
       doc.setFont("helvetica", "normal");
       doc.setFontSize(7.5);
       doc.setTextColor(100, 116, 139);
-      doc.text("Have a great day!", pageWidth / 2, 121, { align: "center" });
+      doc.text("Have a great day!", pageWidth / 2, y + 11, { align: "center" });
 
       doc.save(`${receiptData.receiptNo}.pdf`);
 
@@ -258,21 +319,28 @@ export default function Home() {
   const handleShareWhatsApp = () => {
     if (!receiptData) return;
 
+    const itemsSummary = receiptData.items
+      .map(
+        (it) =>
+          `• ${it.name} (x${it.qty}) - ₦${(Number(it.qty) * Number(it.price)).toLocaleString()}`
+      )
+      .join("\n");
+
     const message = `🧾 *RECEIPT - QuickReceipt*
 --------------------------------
 *Receipt No:* ${receiptData.receiptNo}
 *Date:* ${receiptData.date} ${receiptData.time}
 *Customer:* ${receiptData.customerName}
 
-*Item:* ${receiptData.item} (Qty: 1)
-*Total Paid:* ₦${receiptData.price}
+*Items:*
+${itemsSummary}
+
+*Total Paid:* ₦${receiptData.totalAmount.toLocaleString()}
 *Payment Method:* ${paymentLabels[receiptData.paymentMethod] || receiptData.paymentMethod}
 --------------------------------
 Thank you for your business! Have a great day!`;
 
-    const encodedMessage = encodeURIComponent(message);
-    window.open(`https://wa.me/?text=${encodedMessage}`, "_blank");
-
+    window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank");
     toast.info("Opening WhatsApp...");
   };
 
@@ -280,7 +348,7 @@ Thank you for your business! Have a great day!`;
     <div className="min-h-screen bg-slate-100 flex flex-col justify-between text-slate-800 antialiased font-sans">
       <Toaster position="top-center" richColors closeButton />
 
-      <main className="flex-1 w-full max-w-sm mx-auto px-4 py-8 flex flex-col justify-center">
+      <main className="flex-1 w-full max-w-md mx-auto px-4 py-8 flex flex-col justify-center">
         {!receiptData ? (
           /* ================= FORM SCREEN ================= */
           <div className="bg-white p-6 rounded-3xl border border-slate-200/80 shadow-sm">
@@ -289,8 +357,8 @@ Thank you for your business! Have a great day!`;
                 Create a Receipt
               </h1>
               <p className="text-xs leading-relaxed text-slate-500 font-normal">
-                Enter details below to generate a receipt slip or share directly on
-                WhatsApp.
+                Add multiple goods/services, set quantity and price, and generate
+                your receipt.
               </p>
             </div>
 
@@ -305,58 +373,110 @@ Thank you for your business! Have a great day!`;
                   <Input
                     id="name"
                     type="text"
-                    placeholder="Aarav Sharma"
+                    placeholder="e.g. Aarav Sharma"
                     value={formData.customerName}
                     onChange={(e) =>
                       setFormData({ ...formData, customerName: e.target.value })
                     }
-                    className="pl-10 h-11 rounded-xl border-slate-200 bg-white text-slate-800 placeholder:text-slate-400 shadow-none focus-visible:ring-2 focus-visible:ring-blue-500 text-sm"
+                    className="pl-10 h-11 rounded-xl border-slate-200 bg-white text-slate-800 placeholder:text-slate-400 text-sm shadow-none focus-visible:ring-2 focus-visible:ring-blue-500"
                   />
                 </div>
               </div>
 
-              {/* Item / Service */}
-              <div className="space-y-1">
-                <Label htmlFor="item" className="text-xs font-semibold text-slate-600">
-                  Item / Service
-                </Label>
-                <div className="relative flex items-center">
-                  <Box className="absolute left-3.5 w-4 h-4 text-slate-400 pointer-events-none" />
-                  <Input
-                    id="item"
-                    type="text"
-                    placeholder="Notebook"
-                    value={formData.item}
-                    onChange={(e) =>
-                      setFormData({ ...formData, item: e.target.value })
-                    }
-                    className="pl-10 h-11 rounded-xl border-slate-200 bg-white text-slate-800 placeholder:text-slate-400 shadow-none focus-visible:ring-2 focus-visible:ring-blue-500 text-sm"
-                  />
+              {/* Items List */}
+              <div className="space-y-2 pt-1">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold text-slate-600">
+                    Items / Services
+                  </Label>
+                  <span className="text-[11px] font-medium text-slate-400">
+                    Total: ₦{calculateTotal(formData.items).toLocaleString()}
+                  </span>
                 </div>
-              </div>
 
-              {/* Price (₦) */}
-              <div className="space-y-1">
-                <Label htmlFor="price" className="text-xs font-semibold text-slate-600">
-                  Price (₦)
-                </Label>
-                <div className="relative flex items-center">
-                  <NairaIcon className="absolute left-3.5 w-4 h-4 text-slate-500 pointer-events-none" />
-                  <Input
-                    id="price"
-                    type="text"
-                    placeholder="199"
-                    value={formData.price}
-                    onChange={(e) =>
-                      setFormData({ ...formData, price: e.target.value })
-                    }
-                    className="pl-10 h-11 rounded-xl border-slate-200 bg-white text-slate-800 placeholder:text-slate-400 shadow-none focus-visible:ring-2 focus-visible:ring-blue-500 text-sm"
-                  />
+                <div className="space-y-2.5">
+                  {formData.items.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className="p-3 rounded-2xl bg-slate-50/80 border border-slate-200/60 space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-500">
+                          Item #{idx + 1}
+                        </span>
+                        {formData.items.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeItem(idx)}
+                            className="text-slate-400 hover:text-red-500 transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+
+                      <Input
+                        type="text"
+                        placeholder="Item name (e.g. Notebook, Food, Pen)"
+                        value={item.name}
+                        onChange={(e) => updateItem(idx, "name", e.target.value)}
+                        className="h-10 text-xs rounded-xl bg-white border-slate-200"
+                      />
+
+                      <div className="grid grid-cols-2 gap-2">
+                        {/* Quantity */}
+                        <div className="space-y-1">
+                          <span className="text-[10px] text-slate-400 font-medium">
+                            Quantity
+                          </span>
+                          <Input
+                            type="number"
+                            min="1"
+                            placeholder="1"
+                            value={item.qty}
+                            onChange={(e) =>
+                              updateItem(idx, "qty", Math.max(1, Number(e.target.value)))
+                            }
+                            className="h-10 text-xs rounded-xl bg-white border-slate-200"
+                          />
+                        </div>
+
+                        {/* Price per item */}
+                        <div className="space-y-1">
+                          <span className="text-[10px] text-slate-400 font-medium">
+                            Unit Price (₦)
+                          </span>
+                          <div className="relative flex items-center">
+                            <NairaIcon className="absolute left-2.5 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+                            <Input
+                              type="number"
+                              placeholder="Price"
+                              value={item.price}
+                              onChange={(e) =>
+                                updateItem(idx, "price", e.target.value)
+                              }
+                              className="pl-8 h-10 text-xs rounded-xl bg-white border-slate-200"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={addItem}
+                  className="w-full h-10 rounded-xl border-dashed border-slate-300 text-blue-600 hover:bg-blue-50 font-medium text-xs gap-1.5"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Add Another Item
+                </Button>
               </div>
 
               {/* Payment Method */}
-              <div className="space-y-1">
+              <div className="space-y-1 pt-1">
                 <Label htmlFor="payment" className="text-xs font-semibold text-slate-600">
                   Payment Method
                 </Label>
@@ -368,7 +488,7 @@ Thank you for your business! Have a great day!`;
                 >
                   <SelectTrigger
                     id="payment"
-                    className="h-11 w-full rounded-xl border-slate-200 bg-white px-3 text-slate-800 shadow-none focus:ring-2 focus:ring-blue-500 flex items-center [&>svg]:opacity-50 text-sm"
+                    className="h-11 w-full rounded-xl border-slate-200 bg-white px-3 text-slate-800 text-sm shadow-none focus:ring-2 focus:ring-blue-500 flex items-center [&>svg]:opacity-50"
                   >
                     <div className="flex items-center gap-2.5">
                       <CreditCard className="w-4 h-4 text-slate-500" />
@@ -385,7 +505,7 @@ Thank you for your business! Have a great day!`;
 
               <Button
                 type="submit"
-                className="w-full h-11 mt-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl text-sm shadow-sm flex items-center justify-center gap-2 active:scale-[0.99] transition-all"
+                className="w-full h-11 mt-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl text-sm shadow-sm flex items-center justify-center gap-2 active:scale-[0.99] transition-all"
               >
                 <Send className="w-4 h-4 fill-white rotate-45 -mt-0.5" />
                 Generate Receipt
@@ -420,7 +540,6 @@ Thank you for your business! Have a great day!`;
                 </p>
               </div>
 
-              {/* RECEIPT Label */}
               <h2 className="text-center font-extrabold tracking-wide text-slate-900 text-base mb-6">
                 RECEIPT
               </h2>
@@ -463,12 +582,21 @@ Thank you for your business! Have a great day!`;
                   <span className="w-1/4 text-right">Price</span>
                 </div>
 
-                <div className="px-3 py-3 flex justify-between items-center text-xs text-slate-800 font-medium">
-                  <span className="w-1/2 truncate">{receiptData.item}</span>
-                  <span className="w-1/4 text-center text-slate-600">1</span>
-                  <span className="w-1/4 text-right font-semibold">
-                    ₦{receiptData.price}
-                  </span>
+                <div className="divide-y divide-slate-100">
+                  {receiptData.items.map((it, idx) => (
+                    <div
+                      key={idx}
+                      className="px-3 py-2.5 flex justify-between items-center text-xs text-slate-800 font-medium"
+                    >
+                      <span className="w-1/2 truncate">{it.name}</span>
+                      <span className="w-1/4 text-center text-slate-600">
+                        {it.qty}
+                      </span>
+                      <span className="w-1/4 text-right font-semibold">
+                        ₦{(Number(it.qty) * Number(it.price)).toLocaleString()}
+                      </span>
+                    </div>
+                  ))}
                 </div>
 
                 <div className="border-t border-slate-100 my-1" />
@@ -476,7 +604,9 @@ Thank you for your business! Have a great day!`;
                 {/* Total */}
                 <div className="px-3 py-2 flex justify-between items-center text-sm font-bold text-slate-900">
                   <span>Total</span>
-                  <span className="text-base font-extrabold">₦{receiptData.price}</span>
+                  <span className="text-base font-extrabold">
+                    ₦{receiptData.totalAmount.toLocaleString()}
+                  </span>
                 </div>
 
                 <div className="border-t border-slate-100 mt-1 mb-4" />
@@ -490,7 +620,8 @@ Thank you for your business! Have a great day!`;
                 <div className="flex items-center gap-2 text-slate-800 font-medium">
                   <CreditCard className="w-4 h-4 text-slate-600" />
                   <span>
-                    {paymentLabels[receiptData.paymentMethod] || receiptData.paymentMethod}
+                    {paymentLabels[receiptData.paymentMethod] ||
+                      receiptData.paymentMethod}
                   </span>
                 </div>
               </div>
