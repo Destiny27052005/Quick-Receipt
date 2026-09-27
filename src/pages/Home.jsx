@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { jsPDF } from "jspdf";
+import { toPng, toBlob } from "html-to-image";
 import { toast, Toaster } from "sonner";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -72,14 +73,29 @@ const paymentLabels = {
   cash: "Cash",
 };
 
-export default function Home() {
-  const [formData, setFormData] = useState({
-    customerName: "",
-    items: [{ name: "", qty: 1, price: "" }],
-    paymentMethod: "bank_transfer",
-  });
+const initialFormState = {
+  customerName: "",
+  items: [{ name: "", qty: 1, price: "" }],
+  paymentMethod: "bank_transfer",
+};
 
+export default function Home() {
+  const [formData, setFormData] = useState(initialFormState);
   const [receiptData, setReceiptData] = useState(null);
+  const receiptCardRef = useRef(null);
+
+  // Reset form and return to input screen
+  const handleCreateNewReceipt = () => {
+    setReceiptData(null);
+    setFormData({
+      customerName: "",
+      items: [{ name: "", qty: 1, price: "" }],
+      paymentMethod: "bank_transfer",
+    });
+    toast.info("Started new receipt", {
+      description: "Previous values have been cleared.",
+    });
+  };
 
   // Add a new row
   const addItem = () => {
@@ -128,7 +144,6 @@ export default function Home() {
       return;
     }
 
-    // Validate that all items have a name and a valid price
     const hasEmptyFields = formData.items.some(
       (item) => !item.name.trim() || !item.price || Number(item.price) <= 0
     );
@@ -167,11 +182,11 @@ export default function Home() {
     });
   };
 
+  // Download PDF
   const handleDownloadPDF = () => {
     if (!receiptData) return;
 
     try {
-      // Dynamic page height based on number of items
       const baseHeight = 130;
       const extraHeight = receiptData.items.length * 8;
       const pageHeight = Math.max(150, baseHeight + extraHeight);
@@ -184,7 +199,6 @@ export default function Home() {
 
       const pageWidth = doc.internal.pageSize.getWidth();
 
-      // Header
       doc.setFont("helvetica", "bold");
       doc.setFontSize(13);
       doc.setTextColor(37, 99, 235);
@@ -197,13 +211,11 @@ export default function Home() {
         align: "center",
       });
 
-      // Receipt Title
       doc.setFont("helvetica", "bold");
       doc.setFontSize(11);
       doc.setTextColor(15, 23, 42);
       doc.text("RECEIPT", pageWidth / 2, 27, { align: "center" });
 
-      // Metadata
       doc.setFont("helvetica", "normal");
       doc.setFontSize(7.5);
       doc.setTextColor(100, 116, 139);
@@ -218,7 +230,6 @@ export default function Home() {
         align: "right",
       });
 
-      // Customer Name
       doc.setFont("helvetica", "normal");
       doc.setFontSize(7.5);
       doc.setTextColor(100, 116, 139);
@@ -229,7 +240,6 @@ export default function Home() {
       doc.setTextColor(15, 23, 42);
       doc.text(receiptData.customerName, 8, 53);
 
-      // Table Header
       let y = 58;
       doc.setFillColor(239, 246, 255);
       doc.rect(8, y, pageWidth - 16, 7, "F");
@@ -240,7 +250,6 @@ export default function Home() {
       doc.text("Qty", pageWidth / 2 + 5, y + 4.5, { align: "center" });
       doc.text("Price", pageWidth - 11, y + 4.5, { align: "right" });
 
-      // Loop Line Items
       y += 11;
       doc.setFont("helvetica", "normal");
       doc.setFontSize(8);
@@ -256,12 +265,10 @@ export default function Home() {
         y += 6.5;
       });
 
-      // Divider line
       doc.setDrawColor(226, 232, 240);
       doc.line(8, y, pageWidth - 8, y);
       y += 6;
 
-      // Grand Total
       doc.setFont("helvetica", "bold");
       doc.setFontSize(9.5);
       doc.setTextColor(15, 23, 42);
@@ -274,7 +281,6 @@ export default function Home() {
       doc.line(8, y, pageWidth - 8, y);
       y += 7;
 
-      // Payment Method
       doc.setFont("helvetica", "normal");
       doc.setFontSize(7.5);
       doc.setTextColor(100, 116, 139);
@@ -289,7 +295,6 @@ export default function Home() {
         y
       );
 
-      // Thank You Box
       y += 10;
       doc.setFillColor(239, 246, 255);
       doc.roundedRect(8, y, pageWidth - 16, 15, 2, 2, "F");
@@ -316,32 +321,66 @@ export default function Home() {
     }
   };
 
-  const handleShareWhatsApp = () => {
-    if (!receiptData) return;
+  // Convert Receipt card to Image & share directly to WhatsApp
+  const handleShareImageToWhatsApp = async () => {
+    if (!receiptCardRef.current || !receiptData) return;
 
-    const itemsSummary = receiptData.items
-      .map(
-        (it) =>
-          `• ${it.name} (x${it.qty}) - ₦${(Number(it.qty) * Number(it.price)).toLocaleString()}`
-      )
-      .join("\n");
+    try {
+      toast.loading("Generating receipt image...", { id: "image-gen" });
 
-    const message = `🧾 *RECEIPT - QuickReceipt*
---------------------------------
-*Receipt No:* ${receiptData.receiptNo}
-*Date:* ${receiptData.date} ${receiptData.time}
-*Customer:* ${receiptData.customerName}
+      // Convert card DOM to high quality image blob
+      const blob = await toBlob(receiptCardRef.current, {
+        pixelRatio: 3,
+        backgroundColor: "#ffffff",
+      });
 
-*Items:*
-${itemsSummary}
+      if (!blob) throw new Error("Image creation failed");
 
-*Total Paid:* ₦${receiptData.totalAmount.toLocaleString()}
-*Payment Method:* ${paymentLabels[receiptData.paymentMethod] || receiptData.paymentMethod}
---------------------------------
-Thank you for your business! Have a great day!`;
+      const file = new File([blob], `${receiptData.receiptNo}.png`, {
+        type: "image/png",
+      });
 
-    window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank");
-    toast.info("Opening WhatsApp...");
+      // If mobile browser supports direct file sharing (Web Share API)
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: `Receipt ${receiptData.receiptNo}`,
+          text: `Here is your receipt from QuickReceipt for ₦${receiptData.totalAmount.toLocaleString()}!`,
+        });
+        toast.dismiss("image-gen");
+        toast.success("Receipt image shared!");
+      } else {
+        // Fallback for Desktop: download the image and launch WhatsApp Web
+        const dataUrl = await toPng(receiptCardRef.current, {
+          pixelRatio: 3,
+          backgroundColor: "#ffffff",
+        });
+
+        const link = document.createElement("a");
+        link.download = `${receiptData.receiptNo}.png`;
+        link.href = dataUrl;
+        link.click();
+
+        toast.dismiss("image-gen");
+        toast.success("Image downloaded!", {
+          description: "Attach the downloaded image in WhatsApp chat.",
+        });
+
+        window.open(
+          `https://wa.me/?text=${encodeURIComponent(
+            `Hi ${receiptData.customerName}, here is your receipt from QuickReceipt!`
+          )}`,
+          "_blank"
+        );
+      }
+    } catch (err) {
+      toast.dismiss("image-gen");
+      if (err.name !== "AbortError") {
+        toast.error("Failed to share image", {
+          description: "Please try downloading the PDF instead.",
+        });
+      }
+    }
   };
 
   return (
@@ -357,8 +396,8 @@ Thank you for your business! Have a great day!`;
                 Create a Receipt
               </h1>
               <p className="text-xs leading-relaxed text-slate-500 font-normal">
-                Add multiple goods/services, set quantity and price, and generate
-                your receipt.
+                Add goods/services, set quantity and price, and generate your
+                receipt slip.
               </p>
             </div>
 
@@ -373,7 +412,7 @@ Thank you for your business! Have a great day!`;
                   <Input
                     id="name"
                     type="text"
-                    placeholder="e.g. Aarav Sharma"
+                    placeholder="e.g. Adekunle Oluwatobiloba Destiny"
                     value={formData.customerName}
                     onChange={(e) =>
                       setFormData({ ...formData, customerName: e.target.value })
@@ -417,14 +456,13 @@ Thank you for your business! Have a great day!`;
 
                       <Input
                         type="text"
-                        placeholder="Item name (e.g. Notebook, Food, Pen)"
+                        placeholder="Item name (e.g. Book, Pen, Food)"
                         value={item.name}
                         onChange={(e) => updateItem(idx, "name", e.target.value)}
                         className="h-10 text-xs rounded-xl bg-white border-slate-200"
                       />
 
                       <div className="grid grid-cols-2 gap-2">
-                        {/* Quantity */}
                         <div className="space-y-1">
                           <span className="text-[10px] text-slate-400 font-medium">
                             Quantity
@@ -435,13 +473,16 @@ Thank you for your business! Have a great day!`;
                             placeholder="1"
                             value={item.qty}
                             onChange={(e) =>
-                              updateItem(idx, "qty", Math.max(1, Number(e.target.value)))
+                              updateItem(
+                                idx,
+                                "qty",
+                                Math.max(1, Number(e.target.value))
+                              )
                             }
                             className="h-10 text-xs rounded-xl bg-white border-slate-200"
                           />
                         </div>
 
-                        {/* Price per item */}
                         <div className="space-y-1">
                           <span className="text-[10px] text-slate-400 font-medium">
                             Unit Price (₦)
@@ -516,17 +557,17 @@ Thank you for your business! Have a great day!`;
           /* ================= EXACT MATCH RECEIPT CARD ================= */
           <div className="space-y-4">
             <button
-              onClick={() => {
-                setReceiptData(null);
-                toast.info("Returned to editor");
-              }}
+              onClick={handleCreateNewReceipt}
               className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors"
             >
               <ArrowLeft className="w-4 h-4" /> Create Another Receipt
             </button>
 
-            {/* Receipt Container */}
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200/90 text-slate-800 font-sans relative">
+            {/* DOM Element Ref'd for Image Rendering */}
+            <div
+              ref={receiptCardRef}
+              className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200/90 text-slate-800 font-sans relative"
+            >
               {/* Logo & Header */}
               <div className="flex flex-col items-center justify-center mb-6">
                 <div className="flex items-center gap-2.5">
@@ -540,6 +581,7 @@ Thank you for your business! Have a great day!`;
                 </p>
               </div>
 
+              {/* RECEIPT Label */}
               <h2 className="text-center font-extrabold tracking-wide text-slate-900 text-base mb-6">
                 RECEIPT
               </h2>
@@ -657,11 +699,11 @@ Thank you for your business! Have a great day!`;
 
               <Button
                 type="button"
-                onClick={handleShareWhatsApp}
+                onClick={handleShareImageToWhatsApp}
                 className="w-full h-11 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-semibold gap-2 shadow-sm text-sm"
               >
                 <MessageCircle className="w-4 h-4 fill-white" />
-                Share on WhatsApp
+                Share Receipt Image on WhatsApp
               </Button>
             </div>
           </div>
